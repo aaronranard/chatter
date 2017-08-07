@@ -90,6 +90,9 @@ class ChatterPostController extends Controller
         }
 
         if ($new_post->id) {
+            $discussion->last_reply_at = $discussion->freshTimestamp();
+            $discussion->save();
+            
             Event::fire(new ChatterAfterNewResponse($request, $new_post));
             if (function_exists('chatter_after_new_response')) {
                 chatter_after_new_response($request);
@@ -161,7 +164,7 @@ class ChatterPostController extends Controller
 
         $post = Models::post()->find($id);
         if (!Auth::guest() && (Auth::user()->id == $post->user_id)) {
-            $post->body = Purifier::clean($request->body);
+            $post->body = $post->markdown ? $request->body : Purifier::clean($request->body);
             $post->save();
 
             $discussion = Models::discussion()->find($post->chatter_discussion_id);
@@ -207,8 +210,13 @@ class ChatterPostController extends Controller
         }
 
         if ($post->discussion->posts()->oldest()->first()->id === $post->id) {
-            $post->discussion->posts()->delete();
-            $post->discussion()->delete();
+            if(config('chatter.soft_deletes')) {
+                $post->discussion->posts()->delete();
+                $post->discussion()->delete();
+            } else {
+                $post->discussion->posts()->forceDelete();
+                $post->discussion()->forceDelete();
+            }
 
             return redirect('/'.config('chatter.routes.home'))->with([
                 'chatter_alert_type' => 'success',
